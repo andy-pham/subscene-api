@@ -64,6 +64,14 @@ def check_subtitles(imdb_id):
             else:
                 rating = -1
 
+            rating_count = re.findall(
+                '<div.*?rating .*? data-hint=".*? (\d+) .*?"', html)
+            if rating_count and rating_count[0].isdigit():
+                rating_count = int(rating_count[0])
+                rating *= rating_count
+            else:
+                rating = -1
+
             subtitle_id = re.findall('/subtitles/.*?(\d+)/ratings', html)[0]
             subtitle_url = re.findall('\?ReturnUrl=(.*?)"', html)[0]
 
