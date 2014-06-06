@@ -2,6 +2,7 @@
 
 import re
 import simplejson
+from time import time
 from google.appengine.api import memcache
 from google.appengine.api import urlfetch
 from google.appengine.api import taskqueue
@@ -84,8 +85,9 @@ def check_subtitles(imdb_id):
     for rpc in rpcs:
         rpc.wait()
 
-    memcache.add(key=imdb_id, value=subs, time=86400)
-    memcache.delete(key='in_progress:%s' % imdb_id)
+    memcache.add(key=imdb_id, value=subs)
+    memcache.set(key='last_updated:%s' % imdb_id, value=time())
+    memcache.delete(key='in_progress:%s' % imdb_id)     # remove lock
     return True
 
 
@@ -96,9 +98,12 @@ def get_subtitles(imdb_ids):
     for imdb_id in imdb_ids:
         subs = _get_subtitles(imdb_id)
         resp['subs'][imdb_id] = subs if subs else {}
+        last_updated = None
         if subs:
             resp['subtitles'] += sum([len(subs[lang]) for lang in subs.keys()])
-        else:
+            last_updated = memcache.get('last_updated:%s' % imdb_id)
+
+        if not last_updated or time() - last_updated > 86400:
             lock_key = 'in_progress:%s' % imdb_id
             if not memcache.get(key=lock_key):
                 taskqueue.add(url='/check_subtitles',
