@@ -25,7 +25,10 @@ def subtitles(imdb_ids):
 @app.route('/subtitle/<subtitle_id>.zip')
 def subtitle(subtitle_id):
     download_url = get_download_url(subtitle_id)
-    return redirect(download_url)
+    if download_url:
+        return redirect(download_url)
+    else:
+        abort(404)
 
 
 @app.route('/check_subtitles', methods=['POST'])

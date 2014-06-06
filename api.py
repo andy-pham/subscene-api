@@ -3,9 +3,29 @@
 import re
 import simplejson
 from time import time
+from google.appengine.ext import db
 from google.appengine.api import memcache
 from google.appengine.api import urlfetch
 from google.appengine.api import taskqueue
+
+
+class Database(db.Model):
+    val = db.TextProperty()
+
+    @classmethod
+    def get(cls, key):
+        resp = cls.get_by_key_name(key)
+        if resp:
+            return simplejson.loads(resp.val)
+
+    @classmethod
+    def set(cls, key, val):
+        entity = cls(key_name=key, val=simplejson.dumps(val))
+        entity.put()
+        return val
+
+
+database = Database()
 
 
 def get_movie_title(imdb_id):
@@ -24,7 +44,7 @@ def extract_download_url(html):
 
 def get_download_url(subtitle_id):
     key = 'subtitle:%s' % subtitle_id
-    subtitle = memcache.get(key)
+    subtitle = database.get(key)
     if not subtitle:
         return False
 
@@ -78,7 +98,7 @@ def check_subtitles(imdb_id):
             info = {'id': int(subtitle_id),
                     'rating': rating,
                     'subtitle_url': subtitle_url}
-            memcache.add('subtitle:%s' % subtitle_id, info)
+            database.set('subtitle:%s' % subtitle_id, info)
             memcache.add('download:%s' % subtitle_id,
                          extract_download_url(html), 1800)
 
@@ -111,8 +131,8 @@ def check_subtitles(imdb_id):
     for rpc in rpcs:
         rpc.wait()
 
-    memcache.add(key=imdb_id, value=subs)
-    memcache.set(key='last_updated:%s' % imdb_id, value=time())
+    database.set('movie:%s' % imdb_id, subs)
+    database.set('last_updated:%s' % imdb_id, time())
     memcache.delete(key='in_progress:%s' % imdb_id)     # remove lock
     return True
 
@@ -122,7 +142,7 @@ def get_subtitles(imdb_ids):
             'subtitles': 0}
 
     for imdb_id in imdb_ids:
-        subs = memcache.get(imdb_id)
+        subs = database.get('movie:%s' % imdb_id)
         if subs:
             data = {}
             for lang in subs.keys():
@@ -137,7 +157,7 @@ def get_subtitles(imdb_ids):
         last_updated = None
         if subs:
             resp['subtitles'] += sum([len(subs[lang]) for lang in subs.keys()])
-            last_updated = memcache.get('last_updated:%s' % imdb_id)
+            last_updated = database.get('last_updated:%s' % imdb_id)
 
         if not last_updated or time() - last_updated > 86400:
             lock_key = 'in_progress:%s' % imdb_id
