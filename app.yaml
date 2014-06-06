@@ -1,0 +1,23 @@
+
+
+application: subscene-api
+version: 5
+api_version: 1
+threadsafe: yes
+runtime: python27
+
+
+libraries:
+  - name: jinja2
+    version: "latest"
+
+  - name: markupsafe
+    version: "latest"
+
+  - name: lxml
+    version: "latest"
+
+
+handlers:
+  - url: .*
+    script: main.app
