@@ -8,18 +8,36 @@ from google.appengine.api import urlfetch
 from google.appengine.api import taskqueue
 
 
-def _get_movie_title(imdb_id):
+def get_movie_title(imdb_id):
     r = urlfetch.fetch('http://www.omdbapi.com/?i=' + imdb_id)
     if r.status_code == 200:
         return simplejson.loads(r.content).get('Title')
 
 
-def _get_subtitles(imdb_id):
-    return memcache.get(imdb_id)
+def extract_download_url(html):
+    download_url = re.findall('"(/subtitle/download\?.*?)"',
+                              html.replace('\n', ''))[0]
+    if download_url.startswith('/'):
+        download_url = 'http://subscene.com' + download_url
+    return download_url
+
+
+def get_download_url(subtitle_id):
+    key = 'subtitle:%s' % subtitle_id
+    subtitle = memcache.get(key)
+    if not subtitle:
+        return False
+
+    download_url = memcache.get('download:%s' % subtitle_id)
+    if not download_url:
+        r = urlfetch.fetch(subtitle.get('subtitle_url'))
+        download_url = extract_download_url(r.content.replace('\n', ''))
+        memcache.add('download:%s' % subtitle_id, download_url, time=1800)
+    return download_url
 
 
 def check_subtitles(imdb_id):
-    movie_title = _get_movie_title(imdb_id)
+    movie_title = get_movie_title(imdb_id)
     if not movie_title:
         return False
 
@@ -46,17 +64,15 @@ def check_subtitles(imdb_id):
             else:
                 rating = -1
 
-            download_url = re.findall(
-                '"(/subtitle/download\?.*?)"', html)[0]
-            if download_url.startswith('/'):
-                download_url = 'http://subscene.com' + download_url
-
-            subtitle_id = re.findall('/subtitles/.*?(\d+)/ratings',
-                                     html, re.MULTILINE)[0]
+            subtitle_id = re.findall('/subtitles/.*?(\d+)/ratings', html)[0]
+            subtitle_url = re.findall('\?ReturnUrl=(.*?)"', html)[0]
 
             info = {'id': int(subtitle_id),
                     'rating': rating,
-                    'url': download_url}
+                    'subtitle_url': subtitle_url}
+            memcache.add('subtitle:%s' % subtitle_id, info)
+            memcache.add('download:%s' % subtitle_id,
+                         extract_download_url(html), 1800)
 
             subtitle_lang = re.findall(' (\w+) subtitle</title>',
                                        html, re.MULTILINE)
@@ -66,6 +82,8 @@ def check_subtitles(imdb_id):
                     subs[subtitle_lang].append(info)
                 else:
                     subs[subtitle_lang] = [info]
+            return True
+        return False
 
     # Use a helper function to define the scope of the callback.
     def create_callback(rpc):
@@ -96,8 +114,18 @@ def get_subtitles(imdb_ids):
             'subtitles': 0}
 
     for imdb_id in imdb_ids:
-        subs = _get_subtitles(imdb_id)
-        resp['subs'][imdb_id] = subs if subs else {}
+        subs = memcache.get(imdb_id)
+        if subs:
+            data = {}
+            for lang in subs.keys():
+                subs[lang].sort(key=lambda k: k['rating'])
+                data[lang] = [subs[lang][-1]]
+                data[lang][0]['download_url'] = '/subtitle/%s.zip' \
+                                                % subs[lang][-1]['id']
+            resp['subs'][imdb_id] = data
+        else:
+            resp['subs'][imdb_id] = {}
+
         last_updated = None
         if subs:
             resp['subtitles'] += sum([len(subs[lang]) for lang in subs.keys()])

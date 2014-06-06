@@ -1,13 +1,13 @@
 #! coding: utf-8
 
-from flask import Flask, request, jsonify, abort
-from api import get_subtitles, check_subtitles
+from flask import Flask, request, jsonify, abort, redirect
+from api import get_subtitles, check_subtitles, get_download_url
 
 app = Flask(__name__)
 
 
-@app.route('/subs/<imdb_ids>')
-def subs(imdb_ids):
+@app.route('/subtitles/<imdb_ids>')
+def subtitles(imdb_ids):
     if '-' in imdb_ids:
         imdb_ids = imdb_ids.split('-')
     else:
@@ -16,7 +16,16 @@ def subs(imdb_ids):
     if data:
         return jsonify(data)
     else:
-        abort(404)
+        resp = {'success': False,
+                'subs': [],
+                'subtitles': 0}
+        return jsonify(resp)
+
+
+@app.route('/subtitle/<subtitle_id>.zip')
+def subtitle(subtitle_id):
+    download_url = get_download_url(subtitle_id)
+    return redirect(download_url)
 
 
 @app.route('/check_subtitles', methods=['POST'])
@@ -27,29 +36,3 @@ def check_subs():
         return 'OK'
     else:
         abort(404)
-
-
-@app.route('/favicon.ico')
-def favicon():
-    return ''
-
-
-@app.route('/')
-def home():
-    return 'Hi there :)'
-
-
-@app.errorhandler(404)
-def page_not_found(e):
-    """Return a custom 404 error."""
-    resp = {'success': False,
-            'subtitles': 0}
-    return jsonify(resp)
-
-
-@app.errorhandler(500)
-def page_not_found(e):
-    """Return a custom 500 error."""
-    resp = {'success': False,
-            'subtitles': -1}
-    return jsonify(resp)
