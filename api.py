@@ -18,12 +18,6 @@ def _get_subtitles(imdb_id):
 
 
 def check_subtitles(imdb_id):
-    lock_key = 'in_progress:%s' % imdb_id
-    if memcache.get(key=lock_key):
-        return None
-
-    memcache.add(key=lock_key, value=True, time=500)
-
     movie_title = _get_movie_title(imdb_id)
     if not movie_title:
         return False
@@ -91,7 +85,7 @@ def check_subtitles(imdb_id):
         rpc.wait()
 
     memcache.add(key=imdb_id, value=subs, time=86400)
-    memcache.delete(key=lock_key)
+    memcache.delete(key='in_progress:%s' % imdb_id)
     return True
 
 
@@ -105,8 +99,11 @@ def get_subtitles(imdb_ids):
         if subs:
             resp['subtitles'] += sum([len(subs[lang]) for lang in subs.keys()])
         else:
-            taskqueue.add(url='/check_subtitles',
-                          params={'imdb_id': imdb_id})
+            lock_key = 'in_progress:%s' % imdb_id
+            if not memcache.get(key=lock_key):
+                taskqueue.add(url='/check_subtitles',
+                              params={'imdb_id': imdb_id})
+                memcache.add(key=lock_key, value=True, time=500)
 
     resp['success'] = True
     return resp
